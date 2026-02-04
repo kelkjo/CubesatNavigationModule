@@ -156,4 +156,18 @@ void loop() {
       panServo.write(i);
       data.tiltAngle = 106 - i;
       tiltServo.write(106 - i);
-      radio.write(&data,
+      radio.write(&data, sizeof(data));
+      delay(3000);
+    }
+    data.panAngle = 53;
+    panServo.write(53);
+    data.tiltAngle = 53;
+    tiltServo.write(53);
+    data.position = '0';
+    data.panAngle = 180;
+    data.tiltAngle = 180;
+    radio.write(&data, sizeof(data));
+    radio.openReadingPipe(0, address);
+    radio.startListening();
+  }
+}
