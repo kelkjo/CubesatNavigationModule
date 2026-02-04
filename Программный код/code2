@@ -1,0 +1,159 @@
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+#include <Servo.h>
+#include <EEPROM.h>
+
+// Пины подключения
+#define LASER_PIN 5
+#define SERVO_PAN_PIN 2    // поворот (горизонтальная ось)
+#define SERVO_TILT_PIN 3  // наклон (вертикальная ось)
+
+// Параметры системы
+#define STEP_ANGLE 10      // шаг 10 градусов
+#define MIN_ANGLE 0        // минимальный угол
+#define MAX_ANGLE 180      // максимальный угол
+#define INIT_PAN 0        // начальное положение поворота (центр)
+#define INIT_TILT 0     // начальное положение наклона (центр)
+
+// Структура для данных управления
+struct ControlData {
+  int panAngle;     // угол поворота (0-180)
+  int tiltAngle;
+  char position = '0';
+  unsigned long id;    // угол наклона (0-180)    // команда сброса
+};
+
+// Объекты
+RF24 radio(10, 9); // CE, CSN пины для nRF24L01
+Servo panServo;
+Servo tiltServo;
+
+// Адрес радиоканала
+const byte address[6] = "00001";
+
+// Текущие углы
+int currentPan = INIT_PAN;
+int currentTilt = INIT_TILT;
+
+struct ModuleInfo {
+  uint32_t uid;          // Уникальный ID
+  char name[16];         // Имя модуля
+  uint8_t version;       // Версия ПО
+  uint8_t moduleType;    // Тип модуля (0=неизвестно, 1=наведение, 2=питание, и т.д.)
+  uint32_t serialNumber; // Серийный номер
+};
+
+ModuleInfo myModule;
+
+void initializeModuleInfo() {
+  // Проверяем, есть ли сохраненная информация
+  ModuleInfo stored;
+  EEPROM.get(0, stored);
+  
+  if (stored.uid != 0 && stored.uid != 0xFFFFFFFF) {
+    // Используем сохраненную информацию
+    myModule = stored;
+    Serial.println("Загружена сохраненная информация модуля");
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  initializeModuleInfo();
+  // Инициализация лазера
+  pinMode(LASER_PIN, OUTPUT);
+  digitalWrite(LASER_PIN, HIGH);
+  
+  // Инициализация сервоприводов
+  panServo.attach(SERVO_PAN_PIN);
+  tiltServo.attach(SERVO_TILT_PIN);
+  
+  // Установка в начальное положение
+  panServo.write(INIT_PAN);
+  tiltServo.write(INIT_TILT);
+  tiltServo.write(53);
+  panServo.write(53);
+  delay(1000);
+  
+  // Инициализация радиомодуля
+  if (!radio.begin()) {
+    Serial.println("Radio module failed!");
+    while (1);
+  }
+  
+  radio.openReadingPipe(0, address);
+  radio.setPALevel(RF24_PA_MIN);
+  radio.startListening();
+  
+  Serial.println("System initialized. Waiting for commands...");
+}
+
+void loop() {
+  // Проверка радиоканала
+  ControlData data;
+  data.id = myModule.uid;
+  data.panAngle = 53;
+  data.tiltAngle = 53;
+  if (radio.available()) {
+    int flag;
+    radio.read(&flag, sizeof(flag));
+    radio.stopListening();
+    radio.openWritingPipe(address);
+    Serial.println("Команда получена");
+    tiltServo.write(13);
+    data.tiltAngle = 13;
+    data.position = '1';
+    radio.write(&data, sizeof(data));
+    for (int i = 23; i <= 93; i = i + 10){
+      data.tiltAngle = i;
+      tiltServo.write(i);
+      radio.write(&data, sizeof(data));
+      delay(3000);
+    }
+    data.tiltAngle = 53;
+    data.position = '0';
+    tiltServo.write(53);
+    delay(3000);
+    data.panAngle = 13;
+    panServo.write(13);
+    data.position = '2';
+    radio.write(&data, sizeof(data));
+    delay(3000);
+    for (int i = 23; i <= 93; i = i + 10){
+      data.panAngle = i;
+      panServo.write(i);
+      radio.write(&data, sizeof(data));
+      delay(3000);
+    }
+    data.panAngle = 53;
+    panServo.write(53);
+    data.position = '0';
+    radio.write(&data, sizeof(data));
+    delay(3000);
+    data.panAngle = 13;
+    panServo.write(13);
+    data.tiltAngle = 13;
+    tiltServo.write(13);
+    data.position = '3';
+    radio.write(&data, sizeof(data));
+    delay(3000);
+    for (int i = 23; i <= 93; i = i + 10){
+      data.tiltAngle = i;
+      tiltServo.write(i);
+      data.panAngle = i;
+      panServo.write(i);
+      radio.write(&data, sizeof(data));
+      delay(3000);
+    }
+    data.panAngle = 13;
+    panServo.write(13);
+    data.position = '4';
+    radio.write(&data, sizeof(data));
+    delay(3000);
+    for (int i = 23; i <= 93; i = i + 10){
+      data.panAngle = i;
+      panServo.write(i);
+      data.tiltAngle = 106 - i;
+      tiltServo.write(106 - i);
+      radio.write(&data,
